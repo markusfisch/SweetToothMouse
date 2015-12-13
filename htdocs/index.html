@@ -72,8 +72,6 @@ var M = Math,
 	W = window,
 	TILE = 1,
 	PLAYER = 2,
-	LEFT = 0 << 7,
-	RIGHT = 1 << 7,
 	STAND = 0 << 8,
 	atlas,
 	sprites = [],
@@ -92,6 +90,8 @@ var M = Math,
 	yMax,
 	scaleFactor,
 	tileSize,
+	maxColsInView,
+	maxRowsInView,
 	now,
 	factor,
 	last,
@@ -99,6 +99,22 @@ var M = Math,
 	pointersX = [],
 	pointersY = [],
 	keysDown = [],
+	map = [],
+	mapCols,
+	mapRows,
+	levelWidth,
+	levelHeight,
+	viewX,
+	viewY,
+	levels = [
+		function()
+		{
+			mapCols = mapRows = 13
+
+			for( var n = mapCols*mapRows; n--; )
+				map[n] = M.random() > .5 ? 1 : 0
+		}],
+	level = 0,
 	entitiesLength,
 	entities = [],
 	player
@@ -150,22 +166,26 @@ function drawSprite( sprite, x, y )
 	gl.drawArrays( gl.TRIANGLE_STRIP, 0, 4 )
 }
 
-var flow = 0;
 function drawMap()
 {
-	var sprite = sprites[TILE],
-		d = flow % tileSize,
-		t = -yMax+d,
-		l = -1+d,
-		b = yMax+tileSize,
-		r = 1+tileSize,
-		n = 0
+	var tileA = sprites[TILE],
+		tileB = sprites[PLAYER|STAND]
 
-	for( var y = t; y < b; y += tileSize )
-		for( var x = l; x < r; x += tileSize )
-			drawSprite( sprite, x, y )
+	var cl = M.max( 0, -1+viewX )/tileSize | 0,
+		cr = M.min( cl+maxColsInView, mapCols ),
+		rt = M.max( 0, viewY-yMax )/tileSize | 0,
+		rb = M.min( rt+maxRowsInView, mapRows ),
+		offset = rt*mapCols+cl,
+		skip = mapCols-(cr-cl),
+		l = -viewX+cl*tileSize,
+		t = viewY-rt*tileSize
 
-	flow -= .001*factor
+	for( var y = t, r = rt; r < rb; y -= tileSize, ++r, offset += skip )
+		for( var x = l, c = cl; c < cr; x += tileSize, ++c, ++offset )
+			drawSprite(
+				map[offset] > 0 ? tileA : tileB,
+				x,
+				y )
 }
 
 function draw()
@@ -186,17 +206,38 @@ function draw()
 		if( e.life < 1 )
 			continue
 
-		if( e !== player )
+		//if( e !== player )
 		{
 			e.x += e.vx*factor
 			e.y += e.vy*factor
-		}
-		else
-		{
-			e.y = M.sin( now*.002 )*yMax
+
+			if( e.x < 0 || e.x > levelWidth-tileSize )
+			{
+				e.x = e.x < 0 ? 0 : levelWidth-tileSize
+				e.vx = -e.vx
+			}
+
+			if( e.y < 0 || e.y > levelHeight-tileSize )
+			{
+				e.y = e.y < 0 ? 0 : levelHeight-tileSize
+				e.vy = -e.vy
+			}
 		}
 
-		drawSprite( sprite, e.x, e.y )
+		if( e === player )
+		{
+			var x = player.x-viewX,
+				y = viewY-player.y,
+				ym = yMax*.9
+
+			if( M.abs( x ) > .9 )
+				viewX += x % .9
+
+			if( M.abs( y ) > ym )
+				viewY -= y % ym
+		}
+
+		drawSprite( sprite, e.x-viewX, viewY-e.y )
 	}
 }
 
@@ -279,18 +320,6 @@ function keyDown( event )
 	setKey( event, true )
 }
 
-function level()
-{
-	entities.length = 0
-
-	entities.push( (player = {
-		sprite: sprites[PLAYER|STAND|LEFT],
-		x: 0,
-		y: 0 }) )
-
-	entitiesLength = entities.length
-}
-
 function compileShader( src, type )
 {
 	var shader = gl.createShader( type )
@@ -349,6 +378,30 @@ function buildProgram( vertexSource, fragmentSource )
 	return p
 }
 
+function initLevel()
+{
+	entities.length = 0
+
+	levels[level]()
+
+	levelWidth = mapCols*tileSize
+	levelHeight = mapRows*tileSize
+
+	var halfTileSize = tileSize*.5
+
+	entities.push( (player = {
+		sprite: sprites[PLAYER|STAND],
+		x: levelWidth*.5-halfTileSize,
+		y: levelHeight*.5-halfTileSize,
+		vx: M.cos( M.random()*(M.PI+M.PI) )*scaleFactor*8,
+		vy: M.sin( M.random()*(M.PI+M.PI) )*scaleFactor*8 }) )
+
+	viewX = player.x
+	viewY = player.y
+
+	entitiesLength = entities.length
+}
+
 function scale( sprite )
 {
 	var size = sprite.size*scaleFactor
@@ -374,13 +427,18 @@ function resize()
 
 	gl.viewport( 0, 0, width, height )
 
-	var ref = sprites[TILE].size
 	yMax = height/width
-	scaleFactor = M.min( 1, yMax )*.1/62
-	tileSize = scaleFactor*ref*2
+
+	var ref = sprites[TILE].size
+	scaleFactor = M.min( 1, yMax )*.1/ref
+	tileSize = scaleFactor*2*ref
+	maxColsInView = (2/tileSize | 0)+2
+	maxRowsInView = ((yMax+yMax)/tileSize | 0)+3
 
 	for( var id in sprites )
 		scale( sprites[id] )
+
+	initLevel()
 }
 
 function cacheUniformLocation( program, name )
@@ -403,7 +461,7 @@ function calculateSpriteRects()
 {
 	var res = [
 			TILE, {/*TILE*/x:65,y:1,w:62,h:62},
-			PLAYER|STAND|LEFT, {/*player*/x:1,y:1,w:62,h:62},
+			PLAYER|STAND, {/*player*/x:1,y:1,w:62,h:62},
 		],
 		positions = [],
 		xf = 1/atlas.width,
@@ -532,7 +590,6 @@ function init()
 
 	W.onresize = resize
 	resize()
-	level()
 
 	D.onkeydown = keyDown
 	D.onkeyup = keyUp
