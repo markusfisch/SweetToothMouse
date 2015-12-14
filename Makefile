@@ -14,7 +14,20 @@ live:
 		$(HTDOCS)/* \
 		$(WEBROOT)
 
+
 $(HTDOCS)/atlas.png: $(SPRITES)
 	cd $(HTDOCS) && \
-		BORDER=2 mkatlas ../$(SPRITES) | \
+		MAX_SIZE=1024 \
+			BORDER_COLOR=pick:0,0 \
+			BORDER=2 \
+			mkatlas ../$(SPRITES) | \
 		patchatlas index.html
+	convert \
+		-size 1024x1024 \
+		xc:transparent \
+		$(HTDOCS)/atlas.png -composite \
+		$(HTDOCS)/atlas.png
+	convert $(HTDOCS)/atlas.png \( +clone -alpha Extract \) \
+		-channel RGB \
+		-compose Multiply \
+		-composite $(HTDOCS)/atlas.png

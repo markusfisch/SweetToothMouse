@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width"/>
-<title>LD34</title>
+<title>Sweet Tooth Mouse</title>
 <style>
 
 html,
@@ -70,9 +70,25 @@ void main()
 var M = Math,
 	D = document,
 	W = window,
-	TILE = 1,
-	PLAYER = 2,
-	STAND = 0 << 8,
+	DUST = 1,
+	FOOD_APPLE = 2,
+	FOOD_CANDY_CANE = 3,
+	FOOD_CHOCLATE = 4,
+	FOOD_GINGERBREAD = 5,
+	FOOD_NUTS = 6,
+	FOOD_ORANGE = 7,
+	FOOD_PRALINE = 8,
+	MOUSE_ARM_LEFT = 9,
+	MOUSE_ARM_RIGHT = 10,
+	MOUSE_BODY = 11,
+	MOUSE_HEAD = 12,
+	MOUSE_HEAD_EATING = 13,
+	MOUSE_LEG_LEFT = 14,
+	MOUSE_LEG_RIGHT = 15,
+	MOUSE_TAIL = 16,
+	TILE_BOTTOM = 17,
+	TILE_HOLE = 18,
+	TILE_WALL = 19,
 	atlas,
 	sprites = [],
 	canvas,
@@ -88,8 +104,18 @@ var M = Math,
 	width,
 	height,
 	yMax,
+	screenWidthToGl,
+	screenHeightToGl,
+	moveBoundX,
+	moveBoundY,
 	scaleFactor,
 	tileSize,
+	halfTileSize,
+	contactRadius,
+	eatRadius,
+	eatRadiusSquared,
+	speed,
+	gravity,
 	maxColsInView,
 	maxRowsInView,
 	now,
@@ -98,28 +124,177 @@ var M = Math,
 	pointersLength,
 	pointersX = [],
 	pointersY = [],
-	keysDown = [],
 	map = [],
 	mapCols,
 	mapRows,
+	mapLength,
 	levelWidth,
 	levelHeight,
 	viewX,
 	viewY,
+	entitiesLength,
+	entities = [],
+	player = {},
+	foods = [
+		FOOD_APPLE,
+		FOOD_CHOCLATE,
+		FOOD_CANDY_CANE,
+		FOOD_GINGERBREAD,
+		FOOD_NUTS,
+		FOOD_ORANGE,
+		FOOD_PRALINE],
+	foodsLength = foods.length,
+	foodSize,
+	foodLeft,
+	foodRight,
+	foodBottom,
+	foodX,
+	foodY,
+	pickedFood,
+	animationFrequency = 80,
+	minRecovery = 100,
+	gameEnd = false,
+	level = 0,
 	levels = [
 		function()
 		{
-			mapCols = mapRows = 13
+			initLevel(
+				16,
+				16,
+				[
+					0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+					0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+					0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+					0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+					0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+					0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+					0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+					0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+					0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+					0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,
+					0,2,0,0,0,0,0,0,3,0,0,0,1,1,1,1,
+					1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+					1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+					1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+					1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+					1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+				] )
+		}]
 
-			for( var n = mapCols*mapRows; n--; )
-				map[n] = M.random() > .5 ? 1 : 0
-		}],
-	level = 0,
-	entitiesLength,
-	entities = [],
-	player
+function initLevel( cols, rows, template )
+{
+	var offset = 0
 
-function drawSprite( sprite, x, y )
+	for( var r = 0; r < rows; ++r )
+		for( var c = 0; c < cols; ++c, ++offset )
+		{
+			var type = template[offset],
+				id
+
+			switch( type )
+			{
+				case 3:
+					viewX = player.x = c*tileSize
+					viewY = player.y = r*tileSize
+					// fall through
+				case 0:
+					id = TILE_WALL|((M.random()*6 | 0) << 8)
+					break
+				case 1:
+					id = TILE_BOTTOM|((M.random()*5 | 0) << 8)
+					break
+				case 2:
+					id = TILE_HOLE
+					break
+			}
+
+			map[offset] = {
+				id: id,
+				sprite: sprites[id],
+				blocks: type == 1 }
+		}
+
+	mapCols = cols
+	mapRows = rows
+	mapLength = cols*rows
+
+	levelWidth = mapCols*tileSize
+	levelHeight = mapRows*tileSize
+
+	player.vx = 0
+	player.vy = 0
+	player.recovery = minRecovery
+	player.lastRecovery = 0
+	player.fat = 0
+	player.life = 1
+	player.lastMove = 0
+	player.leftLeg = 0
+	player.rightLeg = 0
+	player.eating = 0
+	player.lastEat = 0
+	player.direction = 1
+
+	entities.push( player )
+
+	for( var n = 20; n--; )
+		entities.push( { life: 0 } )
+}
+
+function setLevel()
+{
+	if( level >= levels.length )
+	{
+		gameEnd = true
+		alert( "Yes! But, sorry, that's it. Ran out of time." )
+		return
+	}
+
+	entities.length = 0
+	levels[level % levels.length]()
+	entitiesLength = entities.length
+}
+
+function eat( food )
+{
+	var fat = player.fat,
+		recovery = player.recovery
+
+	switch( food )
+	{
+		case FOOD_APPLE:
+			recovery = M.max( 10, recovery-20 )
+			break
+		case FOOD_CANDY_CANE:
+			recovery += 30
+			++fat
+			break
+		case FOOD_CHOCLATE:
+			recovery += 100
+			fat += 2
+			break
+		case FOOD_GINGERBREAD:
+			recovery += 50
+			++fat
+			break
+		case FOOD_NUTS:
+			++fat
+			break
+		case FOOD_ORANGE:
+			recovery = M.max( 10, recovery-30 )
+			break
+		case FOOD_PRALINE:
+			recovery += 20
+			++fat
+			break
+	}
+
+	player.vx = 0
+	player.eating = 10
+	player.fat = fat
+	player.recovery = recovery
+}
+
+function drawSprite( sprite, x, y, wm, hm )
 {
 	gl.bindBuffer( gl.ARRAY_BUFFER, vertexPositionBuffer )
 	gl.vertexAttribPointer(
@@ -144,9 +319,18 @@ function drawSprite( sprite, x, y )
 		gl.FALSE,
 		perspective )
 
+	var w = sprite.w,
+		h = sprite.h
+
+	if( wm )
+		w *= wm
+
+	if( hm )
+		h *= hm
+
 	transformation[0] =
-		transformation[8] = sprite.w
-	transformation[4] = sprite.h
+		transformation[8] = w
+	transformation[4] = h
 
 	transformation[6] = x
 	transformation[7] = y
@@ -166,11 +350,103 @@ function drawSprite( sprite, x, y )
 	gl.drawArrays( gl.TRIANGLE_STRIP, 0, 4 )
 }
 
+function drawPlayer( x, y )
+{
+	var direction = player.direction,
+		legDelta = player.legDelta,
+		fat = M.min( 4, player.fat ),
+		fatFactor = fat*player.fatFactor,
+		tail = player.tail,
+		leg = player.leg*direction,
+		arm = player.arm*direction+fatFactor,
+		headX = player.headX*direction,
+		headY = player.headY+fatFactor
+
+	if( player.vx != 0 &&
+		now-player.lastMove > animationFrequency*(fat+1) )
+	{
+		player.recovery = M.max( minRecovery, player.recovery-5 )
+		player.leftLeg = ++player.leftLeg % 3
+		player.rightLeg = ++player.rightLeg % 3
+		player.lastMove = now
+	}
+
+	if( player.eating > 0 &&
+		now-player.lastEat > animationFrequency )
+	{
+		--player.eating
+		player.lastEat = now
+	}
+
+	if( fat > 0 &&
+		now-player.lastRecovery > animationFrequency )
+	{
+		if( --player.recovery < 1 )
+		{
+			player.fat = M.max( fat-1, 0 );
+			player.recovery = M.max(
+				minRecovery,
+				minRecovery*player.fat )
+		}
+
+		player.lastRecovery = now
+	}
+
+	y -= player.body
+
+	drawSprite(
+		sprites[MOUSE_TAIL],
+		x+tail*direction,
+		y-tail,
+		direction )
+	drawSprite(
+		sprites[MOUSE_LEG_LEFT|(player.leftLeg<<8)],
+		x-leg+legDelta[player.leftLeg]*direction,
+		y-tail,
+		direction )
+	drawSprite(
+		sprites[MOUSE_LEG_RIGHT|(player.rightLeg<<8)],
+		x+leg-legDelta[player.rightLeg]*direction,
+		y-tail,
+		direction )
+	drawSprite(
+		sprites[MOUSE_ARM_LEFT],
+		x-arm,
+		y,
+		direction )
+	drawSprite(
+		sprites[MOUSE_BODY|(fat<<8)],
+		x,
+		y+fatFactor*.6,
+		direction )
+	drawSprite(
+		sprites[MOUSE_ARM_RIGHT],
+		x+arm,
+		y,
+		direction )
+	drawSprite(
+		sprites[player.eating < 1 ?
+			MOUSE_HEAD :
+			MOUSE_HEAD_EATING|(((player.eating-1) % 2)<<8)],
+		x-headX,
+		y+headY,
+		direction )
+}
+
+function drawFoodButtons()
+{
+	var x = foodX,
+		y = foodY
+
+	for( var n = 0; n < foodsLength; ++n, x += foodSize )
+		drawSprite(
+			sprites[foods[n]],
+			x,
+			y )
+}
+
 function drawMap()
 {
-	var tileA = sprites[TILE],
-		tileB = sprites[PLAYER|STAND]
-
 	var cl = M.max( 0, -1+viewX )/tileSize | 0,
 		cr = M.min( cl+maxColsInView, mapCols ),
 		rt = M.max( 0, viewY-yMax )/tileSize | 0,
@@ -183,7 +459,7 @@ function drawMap()
 	for( var y = t, r = rt; r < rb; y -= tileSize, ++r, offset += skip )
 		for( var x = l, c = cl; c < cr; x += tileSize, ++c, ++offset )
 			drawSprite(
-				map[offset] > 0 ? tileA : tileB,
+				map[offset].sprite,
 				x,
 				y )
 }
@@ -197,6 +473,12 @@ function draw()
 	gl.useProgram( program )
 
 	drawMap()
+	drawFoodButtons();
+
+	var closestFood = null,
+		closestFoodDistance = 1000,
+		closestFoodDx,
+		closestFoodDy
 
 	for( var n = entitiesLength; n--; )
 	{
@@ -206,55 +488,164 @@ function draw()
 		if( e.life < 1 )
 			continue
 
-		//if( e !== player )
+		if( e.vy < 0 )
+			e.vy += gravity
+
+		var idx = ((e.y+contactRadius)/tileSize | 0)*
+			mapCols+((e.x+halfTileSize)/tileSize | 0)
+
+		if( idx < 0 || idx >= mapLength )
+			continue
+
+		var tile = map[idx]
+
+		if( tile.blocks )
 		{
-			e.x += e.vx*factor
-			e.y += e.vy*factor
-
-			if( e.x < 0 || e.x > levelWidth-tileSize )
-			{
-				e.x = e.x < 0 ? 0 : levelWidth-tileSize
-				e.vx = -e.vx
-			}
-
-			if( e.y < 0 || e.y > levelHeight-tileSize )
-			{
-				e.y = e.y < 0 ? 0 : levelHeight-tileSize
-				e.vy = -e.vy
-			}
+			e.vx = 0
+			e.vy = M.min( 0, e.vy )
 		}
+		else if( tile.id == TILE_HOLE )
+		{
+			++level
+			setLevel()
+		}
+
+		e.x += e.vx*factor
+		e.y += e.vy*factor
+
+		var x = e.x-viewX,
+			y = viewY-e.y
 
 		if( e === player )
 		{
-			var x = player.x-viewX,
-				y = viewY-player.y,
-				ym = yMax*.9
+			if( M.abs( x ) > moveBoundX )
+				viewX += x % moveBoundX
 
-			if( M.abs( x ) > .9 )
-				viewX += x % .9
+			if( M.abs( y ) > moveBoundY )
+				viewY -= y % moveBoundY
 
-			if( M.abs( y ) > ym )
-				viewY -= y % ym
+			drawPlayer( x, y )
 		}
+		else if( e.food )
+		{
+			var dx = e.x-player.x,
+				dy = e.y-player.y,
+				d = dx*dx + dy*dy
 
-		drawSprite( sprite, e.x-viewX, viewY-e.y )
+			if( d < eatRadiusSquared )
+			{
+				eat( e.food )
+				e.life = 0
+				continue
+			}
+			else if( d < closestFoodDistance )
+			{
+				closestFoodDistance = d
+				closestFoodDx = dx
+				closestFoodDy = dy
+				closestFood = e
+			}
+
+			drawSprite( sprite, x, y )
+		}
 	}
-}
 
-function input()
-{
+	if( !closestFood )
+		return
+
+	var fat = player.fat
+
+	if( viewY-closestFood.y < foodBottom &&
+		closestFood.vy == 0 &&
+		M.abs( closestFoodDy ) > eatRadius )
+		player.vy -= (speed*2)/(fat+1)
+
+	if( M.abs( closestFoodDx ) > eatRadius )
+	{
+		player.direction = closestFoodDx > 0 ? -1 : 1
+		player.vx = -player.direction*speed/(fat+1)
+	}
 }
 
 function run()
 {
+	if( gameEnd )
+		return
+
 	requestAnimationFrame( run )
 
 	now = Date.now()
 	factor = (now-last)/16
 	last = now
 
-	input()
 	draw()
+}
+
+function releaseFood()
+{
+	if( !pickedFood )
+		return
+
+	moveFood()
+	pickedFood.vx = (M.random()-.5)*scaleFactor*4
+	pickedFood.vy = gravity
+	pickedFood = null;
+}
+
+function moveFood()
+{
+	if( !pickedFood )
+		return
+
+	pickedFood.x = pointersX[0]+viewX
+
+	var y = pointersY[0]
+	if( y > foodBottom )
+		pickedFood.y = viewY-y
+}
+
+function pickFood()
+{
+	if( pointersLength < 1 )
+		return
+
+	var x = pointersX[0],
+		y = pointersY[0]
+
+	if( y < foodBottom ||
+		x < foodLeft ||
+		x > foodRight )
+		return
+
+	var id = foods[(x-foodLeft)/foodSize | 0]
+
+	for( var n = entitiesLength; n--; )
+	{
+		var e = entities[n]
+
+		if( e.life < 1 )
+		{
+			pickedFood = e;
+			e.sprite = sprites[id]
+			e.food = id
+			e.x = x+viewX
+			e.y = viewY-y
+			e.vx = 0
+			e.vy = 0
+			e.life = 1
+			return
+		}
+	}
+}
+
+function pageXToGl( x )
+{
+	return screenWidthToGl*x-1
+}
+
+function pageYToGl( y )
+{
+	return yMax-screenHeightToGl*y
 }
 
 function setPointer( event, down )
@@ -275,15 +666,15 @@ function setPointer( event, down )
 		{
 			var t = touches[n]
 
-			pointersX[n] = t.pageX
-			pointersY[n] = t.pageY
+			pointersX[n] = pageXToGl( t.pageX )
+			pointersY[n] = pageYToGl( t.pageY )
 		}
 	}
 	else
 	{
 		pointersLength = 1
-		pointersX[0] = event.pageX
-		pointersY[0] = event.pageY
+		pointersX[0] = pageXToGl( event.pageX )
+		pointersY[0] = pageYToGl( event.pageY )
 	}
 
 	event.preventDefault()
@@ -292,32 +683,19 @@ function setPointer( event, down )
 function pointerUp( event )
 {
 	setPointer( event, false )
+	releaseFood()
 }
 
 function pointerMove( event )
 {
 	setPointer( event, pointersLength )
+	moveFood()
 }
 
 function pointerDown( event )
 {
 	setPointer( event, true )
-}
-
-function setKey( event, down )
-{
-	keysDown[event.keyCode] = down
-	event.preventDefault()
-}
-
-function keyUp( event )
-{
-	setKey( event, false )
-}
-
-function keyDown( event )
-{
-	setKey( event, true )
+	pickFood()
 }
 
 function compileShader( src, type )
@@ -378,30 +756,6 @@ function buildProgram( vertexSource, fragmentSource )
 	return p
 }
 
-function initLevel()
-{
-	entities.length = 0
-
-	levels[level]()
-
-	levelWidth = mapCols*tileSize
-	levelHeight = mapRows*tileSize
-
-	var halfTileSize = tileSize*.5
-
-	entities.push( (player = {
-		sprite: sprites[PLAYER|STAND],
-		x: levelWidth*.5-halfTileSize,
-		y: levelHeight*.5-halfTileSize,
-		vx: M.cos( M.random()*(M.PI+M.PI) )*scaleFactor*8,
-		vy: M.sin( M.random()*(M.PI+M.PI) )*scaleFactor*8 }) )
-
-	viewX = player.x
-	viewY = player.y
-
-	entitiesLength = entities.length
-}
-
 function scale( sprite )
 {
 	var size = sprite.size*scaleFactor
@@ -428,17 +782,46 @@ function resize()
 	gl.viewport( 0, 0, width, height )
 
 	yMax = height/width
+	screenWidthToGl = 2/width
+	screenHeightToGl = (yMax*2)/height
 
-	var ref = sprites[TILE].size
-	scaleFactor = M.min( 1, yMax )*.1/ref
+	var ref = sprites[TILE_WALL].size
+	scaleFactor = M.max( 1, yMax )*.1/ref
 	tileSize = scaleFactor*2*ref
+	halfTileSize = tileSize*.5
+	contactRadius = tileSize*.75
+	eatRadius = contactRadius*.8
+	eatRadiusSquared = eatRadius*eatRadius
+	speed = tileSize*.05
+	gravity = scaleFactor*8
 	maxColsInView = (2/tileSize | 0)+2
 	maxRowsInView = ((yMax+yMax)/tileSize | 0)+3
+	moveBoundX = .5
+	moveBoundY = yMax*moveBoundX
+
+	player.body = tileSize*.1
+	player.tail = tileSize*.3
+	player.leg = tileSize*.1
+	player.arm = tileSize*.18
+	player.headX = tileSize*.03
+	player.headY = tileSize*.3
+	player.legDelta = [
+		0,
+		-tileSize*.05,
+		tileSize*.05]
+	player.fatFactor = tileSize*.05
+
+	foodSize = tileSize*.75
+	foodRight = (foodsLength*foodSize)*.5
+	foodLeft = -foodRight
+	foodBottom = yMax-tileSize
+	foodX = foodLeft+foodSize*.5
+	foodY = yMax-halfTileSize
 
 	for( var id in sprites )
 		scale( sprites[id] )
 
-	initLevel()
+	setLevel()
 }
 
 function cacheUniformLocation( program, name )
@@ -460,8 +843,43 @@ function cacheUniformLocations( program )
 function calculateSpriteRects()
 {
 	var res = [
-			TILE, {/*TILE*/x:65,y:1,w:62,h:62},
-			PLAYER|STAND, {/*player*/x:1,y:1,w:62,h:62},
+			DUST, {/*dust*/x:951,y:230,w:18,h:18},
+			FOOD_APPLE, {/*food_apple*/x:926,y:2,w:87,h:86},
+			FOOD_CANDY_CANE, {/*food_candy_cane*/x:829,y:266,w:38,h:84},
+			FOOD_CHOCLATE, {/*food_choclate*/x:537,y:266,w:80,h:60},
+			FOOD_GINGERBREAD, {/*food_gingerbread*/x:213,y:266,w:79,h:83},
+			FOOD_NUTS, {/*food_nuts*/x:446,y:266,w:87,h:56},
+			FOOD_ORANGE, {/*food_orange*/x:852,y:134,w:95,h:96},
+			FOOD_PRALINE, {/*food_praline*/x:951,y:134,w:60,h:92},
+			MOUSE_ARM_LEFT, {/*mouse_arm_left*/x:871,y:266,w:16,h:38},
+			MOUSE_ARM_RIGHT, {/*mouse_arm_right*/x:992,y:92,w:21,h:36},
+			MOUSE_BODY, {/*mouse_body_0*/x:775,y:266,w:50,h:75},
+			MOUSE_BODY|(1<<8), {/*mouse_body_1*/x:296,y:266,w:63,h:86},
+			MOUSE_BODY|(2<<8), {/*mouse_body_2*/x:134,y:266,w:75,h:95},
+			MOUSE_BODY|(3<<8), {/*mouse_body_3*/x:764,y:134,w:84,h:114},
+			MOUSE_BODY|(4<<8), {/*mouse_body_4*/x:662,y:134,w:98,h:122},
+			MOUSE_HEAD, {/*mouse_head*/x:698,y:266,w:73,h:63},
+			MOUSE_HEAD_EATING, {/*mouse_head_eating_0*/x:363,y:266,w:79,h:65},
+			MOUSE_HEAD_EATING|(1<<8), {/*mouse_head_eating_1*/x:621,y:266,w:73,h:64},
+			MOUSE_LEG_LEFT, {/*mouse_leg_left_0*/x:884,y:234,w:9,h:24},
+			MOUSE_LEG_LEFT|(1<<8), {/*mouse_leg_left_1*/x:973,y:230,w:14,h:21},
+			MOUSE_LEG_LEFT|(2<<8), {/*mouse_leg_left_2*/x:868,y:234,w:12,h:22},
+			MOUSE_LEG_RIGHT, {/*mouse_leg_right_0*/x:897,y:234,w:9,h:23},
+			MOUSE_LEG_RIGHT|(1<<8), {/*mouse_leg_right_1*/x:991,y:230,w:13,h:21},
+			MOUSE_LEG_RIGHT|(2<<8), {/*mouse_leg_right_2*/x:852,y:234,w:12,h:22},
+			MOUSE_TAIL, {/*mouse_tail*/x:926,y:92,w:62,h:20},
+			TILE_BOTTOM, {/*tile_bottom_0*/x:530,y:134,w:128,h:128},
+			TILE_BOTTOM|(1<<8), {/*tile_bottom_1*/x:398,y:134,w:128,h:128},
+			TILE_BOTTOM|(2<<8), {/*tile_bottom_2*/x:266,y:134,w:128,h:128},
+			TILE_BOTTOM|(3<<8), {/*tile_bottom_3*/x:134,y:134,w:128,h:128},
+			TILE_BOTTOM|(4<<8), {/*tile_bottom_4*/x:2,y:134,w:128,h:128},
+			TILE_HOLE, {/*tile_hole*/x:794,y:2,w:128,h:128},
+			TILE_WALL, {/*tile_wall_0*/x:662,y:2,w:128,h:128},
+			TILE_WALL|(1<<8), {/*tile_wall_1*/x:530,y:2,w:128,h:128},
+			TILE_WALL|(2<<8), {/*tile_wall_2*/x:398,y:2,w:128,h:128},
+			TILE_WALL|(3<<8), {/*tile_wall_3*/x:266,y:2,w:128,h:128},
+			TILE_WALL|(4<<8), {/*tile_wall_4*/x:134,y:2,w:128,h:128},
+			TILE_WALL|(5<<8), {/*tile_wall_5*/x:2,y:2,w:128,h:128},
 		],
 		positions = [],
 		xf = 1/atlas.width,
@@ -582,17 +1000,14 @@ function init()
 		return
 
 	gl.enable( gl.BLEND )
-	gl.blendFunc( gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA )
-	gl.clearColor( 0, 0, .4, 1 )
+	gl.blendFunc( gl.ONE, gl.ONE_MINUS_SRC_ALPHA )
+	gl.clearColor( .318, .448, .2, 1 )
 
 	initBuffers( program )
 	cacheUniformLocations( program )
 
 	W.onresize = resize
 	resize()
-
-	D.onkeydown = keyDown
-	D.onkeyup = keyUp
 
 	D.onmousedown = pointerDown
 	D.onmousemove = pointerMove
