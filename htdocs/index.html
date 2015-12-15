@@ -270,7 +270,7 @@ function eat( food )
 			break
 		case FOOD_CHOCLATE:
 			recovery += 100
-			fat += 2
+			++fat
 			break
 		case FOOD_GINGERBREAD:
 			recovery += 50
@@ -358,7 +358,7 @@ function drawPlayer( x, y )
 		fatFactor = fat*player.fatFactor,
 		tail = player.tail,
 		leg = player.leg*direction,
-		arm = player.arm*direction+fatFactor,
+		arm = (player.arm+fatFactor)*direction,
 		headX = player.headX*direction,
 		headY = player.headY+fatFactor
 
@@ -442,7 +442,7 @@ function drawFoodButtons()
 		drawSprite(
 			sprites[foods[n]],
 			x,
-			y )
+			y+M.sin( now*.002+n )*.01 )
 }
 
 function drawMap()
