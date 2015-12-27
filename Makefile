@@ -1,6 +1,6 @@
 HTDOCS = htdocs
 SPRITES = sprites/*
-WEBROOT = hhsw.de@ssh.strato.de:sites/proto/ld34
+WEBROOT = hhsw.de@ssh.strato.de:sites/sweettooth
 OPTIONS = \
 	--recursive \
 	--links \
@@ -14,19 +14,14 @@ live:
 		$(HTDOCS)/* \
 		$(WEBROOT)
 
-
 $(HTDOCS)/atlas.png: $(SPRITES)
 	cd $(HTDOCS) && \
 		MAX_SIZE=1024 \
-			BORDER_COLOR=pick:0,0 \
-			BORDER=2 \
+		MIN_SIZE=1024 \
+			MARGIN=2 \
+			EXPAND='tile_*' \
 			mkatlas ../$(SPRITES) | \
 		patchatlas index.html
-	convert \
-		-size 1024x1024 \
-		xc:transparent \
-		$(HTDOCS)/atlas.png -composite \
-		$(HTDOCS)/atlas.png
 	convert $(HTDOCS)/atlas.png \( +clone -alpha Extract \) \
 		-channel RGB \
 		-compose Multiply \
